@@ -44,7 +44,7 @@ async function fillInAccountId(credProvider: AwsCredentialProvider) {
   }
 
   const client = new STSClient({
-    region: credProvider.stsRegion,
+    region: credProvider.region,
     customUserAgent: 'backstage-aws-credentials-manager',
     credentialDefaultProvider: () => credProvider.sdkCredentialProvider,
   });
@@ -178,7 +178,7 @@ export class DefaultAwsCredentialsManager implements AwsCredentialsManager {
       );
       accountCredProviders.set(accountConfig.accountId, {
         accountId: accountConfig.accountId,
-        stsRegion: accountConfig.region,
+        region: accountConfig.region,
         sdkCredentialProvider,
       });
     }

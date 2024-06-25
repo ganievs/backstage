@@ -28,7 +28,7 @@ export type AwsCredentialProvider = {
   /**
    * The STS region used with these credentials
    */
-  stsRegion?: string;
+  region?: string;
   /**
    * The credential identity provider to use when creating AWS SDK for Javascript V3 clients
    */
