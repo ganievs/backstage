@@ -25,6 +25,7 @@ import { DefaultCacheClient } from './CacheClient';
 import { CacheManagerOptions, ttlToMilliseconds } from './types';
 import { durationToMilliseconds } from '@backstage/types';
 import { readDurationFromConfig } from '@backstage/config';
+import { createCluster } from '@keyv/redis';
 
 type StoreFactory = (pluginId: string, defaultTtl: number | undefined) => Keyv;
 
@@ -144,9 +145,19 @@ export class CacheManager {
 
     return (pluginId, defaultTtl) => {
       if (!stores[pluginId]) {
-        stores[pluginId] = new KeyvRedis(this.connection, {
-          keyPrefixSeparator: ':',
-        });
+        if (Array.isArray(this.connection)) {
+          // Multiple connection URIs: setup a Redis Cluster
+          const rootNodes = this.connection.map(url => ({ url }));
+          const cluster = createCluster({ rootNodes });
+          stores[pluginId] = new KeyvRedis(cluster, {
+            keyPrefixSeparator: ':',
+          });
+        } else {
+          // Single connection URI: use a standard Redis instance
+          stores[pluginId] = new KeyvRedis(this.connection, {
+            keyPrefixSeparator: ':',
+          });
+        }
         // Always provide an error handler to avoid stopping the process
         stores[pluginId].on('error', (err: Error) => {
           this.logger?.error('Failed to create redis cache client', err);

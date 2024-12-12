@@ -539,7 +539,7 @@ export interface Config {
            * A redis connection string in the form `redis://user:pass@host:port`.
            * @visibility secret
            */
-          connection: string;
+          connection: string | string[];
           /** An optional default TTL (in milliseconds, if given as a number). */
           defaultTtl?: number | HumanDuration | string;
         }
