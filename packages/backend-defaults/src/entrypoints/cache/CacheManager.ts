@@ -67,7 +67,8 @@ export class CacheManager {
     // with an in-memory cache client.
     const store = config.getOptionalString('backend.cache.store') || 'memory';
     const defaultTtlConfig = config.getOptional('backend.cache.defaultTtl');
-    const connection = config.getOptional('backend.cache.connection') || '';
+    const connectionConfig =
+      config.getOptional('backend.cache.connection') || '';
     const logger = options.logger?.child({
       type: 'cacheManager',
     });
@@ -76,6 +77,19 @@ export class CacheManager {
       logger?.warn(
         "The 'backend.cache.useRedisSets' configuration key is deprecated and no longer has any effect. The underlying '@keyv/redis' library no longer supports redis sets.",
       );
+    }
+
+    let connection: string | string[];
+    if (typeof connectionConfig === 'string') {
+      connection = connectionConfig;
+    } else if (
+      Array.isArray(connectionConfig) &&
+      connectionConfig.every(item => typeof item === 'string')
+    ) {
+      connection =
+        config.getOptionalStringArray('backend.cache.connection') || '';
+    } else {
+      connection = '';
     }
 
     let defaultTtl: number | undefined;
