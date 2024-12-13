@@ -35,7 +35,11 @@ backend:
   # auth:
   #   keys:
   #     - secret: ${BACKEND_SECRET}
-
+  cache:
+    store: redis
+    connection: "redis://127.0.0.1:7001"
+      # - "redis://127.0.0.1:7002"
+      # - "redis://127.0.0.1:7003"
   auth:
     # TODO: once plugins have been migrated we can remove this, but right now it
     # is require for the backend-next to work in this repo

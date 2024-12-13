@@ -49,7 +49,7 @@ export class CacheManager {
 
   private readonly logger?: LoggerService;
   private readonly store: keyof CacheManager['storeFactories'];
-  private readonly connection: string;
+  private readonly connection: string | string[];
   private readonly errorHandler: CacheManagerOptions['onError'];
   private readonly defaultTtl?: number;
 
@@ -67,8 +67,7 @@ export class CacheManager {
     // with an in-memory cache client.
     const store = config.getOptionalString('backend.cache.store') || 'memory';
     const defaultTtlConfig = config.getOptional('backend.cache.defaultTtl');
-    const connectionString =
-      config.getOptionalString('backend.cache.connection') || '';
+    const connection = config.getOptional('backend.cache.connection');
     const logger = options.logger?.child({
       type: 'cacheManager',
     });
@@ -92,7 +91,7 @@ export class CacheManager {
 
     return new CacheManager(
       store,
-      connectionString,
+      connection,
       options.onError,
       logger,
       defaultTtl,
@@ -102,7 +101,7 @@ export class CacheManager {
   /** @internal */
   constructor(
     store: string,
-    connectionString: string,
+    connection: string | string[],
     errorHandler: CacheManagerOptions['onError'],
     logger?: LoggerService,
     defaultTtl?: number,
@@ -112,7 +111,7 @@ export class CacheManager {
     }
     this.logger = logger;
     this.store = store as keyof CacheManager['storeFactories'];
-    this.connection = connectionString;
+    this.connection = connection;
     this.errorHandler = errorHandler;
     this.defaultTtl = defaultTtl;
   }
