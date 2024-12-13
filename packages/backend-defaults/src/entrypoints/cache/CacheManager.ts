@@ -67,7 +67,7 @@ export class CacheManager {
     // with an in-memory cache client.
     const store = config.getOptionalString('backend.cache.store') || 'memory';
     const defaultTtlConfig = config.getOptional('backend.cache.defaultTtl');
-    const connection = config.getOptional('backend.cache.connection');
+    const connection = config.getOptional('backend.cache.connection') || '';
     const logger = options.logger?.child({
       type: 'cacheManager',
     });
