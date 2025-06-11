@@ -19,7 +19,7 @@ import {
   stringifyEntityRef,
   UserEntity,
 } from '@backstage/catalog-model';
-import { SearchEntry } from 'ldapjs';
+import { Entry } from 'ldapts';
 import lodashSet from 'lodash/set';
 import cloneDeep from 'lodash/cloneDeep';
 import { buildOrgHierarchy } from './org';
@@ -45,7 +45,7 @@ import { InputError } from '@backstage/errors';
 export async function defaultUserTransformer(
   vendor: LdapVendor,
   config: UserConfig,
-  entry: SearchEntry,
+  entry: Entry,
 ): Promise<UserEntity | undefined> {
   const { set, map } = config;
 
@@ -162,7 +162,7 @@ export async function readLdapUsers(
 export async function defaultGroupTransformer(
   vendor: LdapVendor,
   config: GroupConfig,
-  entry: SearchEntry,
+  entry: Entry,
 ): Promise<GroupEntity | undefined> {
   const { set, map } = config;
   const entity: GroupEntity = {
@@ -347,7 +347,7 @@ export async function readLdapOrg(
 
 // Maps a multi-valued attribute of references to other objects, to a consumer
 function mapReferencesAttr(
-  entry: SearchEntry,
+  entry: Entry,
   vendor: LdapVendor,
   attributeName: string | undefined,
   setter: (sourceDn: string, targets: string[]) => void,

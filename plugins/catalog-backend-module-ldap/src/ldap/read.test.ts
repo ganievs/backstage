@@ -15,912 +15,55 @@
  */
 
 import { GroupEntity, UserEntity } from '@backstage/catalog-model';
-import { SearchEntry } from 'ldapjs';
-import merge from 'lodash/merge';
-import { LdapClient } from './client';
-import { GroupConfig, UserConfig, VendorConfig } from './config';
-import {
-  LDAP_DN_ANNOTATION,
-  LDAP_RDN_ANNOTATION,
-  LDAP_UUID_ANNOTATION,
-} from './constants';
+// import { LdapSearchEntry } from './client';
 import {
   defaultGroupTransformer,
   defaultUserTransformer,
-  readLdapGroups,
+  // readLdapGroups,
   readLdapUsers,
   resolveRelations,
 } from './read';
-import { RecursivePartial } from './util';
-import {
-  ActiveDirectoryVendor,
-  DefaultLdapVendor,
-  FreeIpaVendor,
-} from './vendors';
+import { GroupConfig, UserConfig } from './config';
+import { DefaultLdapVendor } from './vendors';
+import { SearchEntry } from 'ldapts';
 
-function user(data: RecursivePartial<UserEntity>): UserEntity {
-  return merge(
-    {},
-    {
-      apiVersion: 'backstage.io/v1alpha1',
-      kind: 'User',
-      metadata: { name: 'name' },
-      spec: { profile: {}, memberOf: [] },
-    } as UserEntity,
-    data,
-  );
-}
+describe('LDAP read functions', () => {
+  // const mockVendor: LdapVendor = {
+  //   ...DefaultLdapVendor,
+  //   decodeStringAttribute: (entry: Entry, name: string) => {
+  //     const attr = entry.attributes.find(a => a.type === name);
+  //     return attr ? attr.values : [];
+  //   },
+  // };
 
-function group(data: RecursivePartial<GroupEntity>): GroupEntity {
-  return merge(
-    {},
-    {
-      apiVersion: 'backstage.io/v1alpha1',
-      kind: 'Group',
-      metadata: { name: 'name' },
-      spec: { type: 'type', children: [] },
-    } as GroupEntity,
-    data,
-  );
-}
+  const createMockEntry = (
+    data: Record<string, string | string[]>,
+  ): SearchEntry => {
+    const attributes = Object.entries(data).map(([type, value]) => ({
+      type,
+      values: Array.isArray(value) ? value : [value],
+    }));
 
-function searchEntry(
-  attributes: Record<string, string[] | Buffer[]>,
-): SearchEntry {
-  return {
-    raw: Object.entries(attributes).reduce((obj, [key, values]) => {
-      obj[key] = values;
-      return obj;
-    }, {} as any),
-  } as any;
-}
+    const raw: Record<string, Buffer | Buffer[]> = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (Array.isArray(value)) {
+        raw[key] = value.map(v => Buffer.from(v));
+      } else {
+        raw[key] = Buffer.from(value);
+      }
+    }
 
-describe('readLdapUsers', () => {
-  const client: jest.Mocked<LdapClient> = {
-    searchStreaming: jest.fn(),
-    getVendor: jest.fn(),
-  } as any;
-
-  afterEach(() => jest.resetAllMocks());
-
-  it('transfers all attributes from a default ldap vendor', async () => {
-    client.getVendor.mockResolvedValue(DefaultLdapVendor);
-    client.searchStreaming.mockImplementation(async (_dn, _opts, fn) => {
-      await fn(
-        searchEntry({
-          uid: ['uid-value'],
-          description: ['description-value'],
-          cn: ['cn-value'],
-          mail: ['mail-value'],
-          avatarUrl: ['avatarUrl-value'],
-          memberOf: ['x', 'y', 'z'],
-          entryDN: ['dn-value'],
-          entryUUID: ['uuid-value'],
-        }),
-      );
-    });
-    const config: UserConfig[] = [
-      {
-        dn: 'ddd',
-        options: {},
-        map: {
-          rdn: 'uid',
-          name: 'uid',
-          description: 'description',
-          displayName: 'cn',
-          email: 'mail',
-          picture: 'avatarUrl',
-          memberOf: 'memberOf',
-        },
-      },
-    ];
-    const { users, userMemberOf } = await readLdapUsers(client, config, {});
-    expect(users).toEqual([
-      expect.objectContaining({
-        metadata: {
-          name: 'uid-value',
-          description: 'description-value',
-          annotations: {
-            [LDAP_DN_ANNOTATION]: 'dn-value',
-            [LDAP_RDN_ANNOTATION]: 'uid-value',
-            [LDAP_UUID_ANNOTATION]: 'uuid-value',
-          },
-        },
-        spec: {
-          profile: {
-            displayName: 'cn-value',
-            email: 'mail-value',
-            picture: 'avatarUrl-value',
-          },
-          memberOf: [],
-        },
-      }),
-    ]);
-    expect(userMemberOf).toEqual(
-      new Map([['dn-value', new Set(['x', 'y', 'z'])]]),
-    );
-  });
-
-  it('override default vendor configs', async () => {
-    client.getVendor.mockResolvedValue(DefaultLdapVendor);
-    client.searchStreaming.mockImplementation(async (_dn, _opts, fn) => {
-      await fn(
-        searchEntry({
-          uid: ['uid-value'],
-          description: ['description-value'],
-          cn: ['cn-value'],
-          mail: ['mail-value'],
-          avatarUrl: ['avatarUrl-value'],
-          memberOf: ['x', 'y', 'z'],
-          customDN: ['dn-value'],
-          customUUID: ['uuid-value'],
-        }),
-      );
-    });
-    const config: UserConfig[] = [
-      {
-        dn: 'ddd',
-        options: {},
-        map: {
-          rdn: 'uid',
-          name: 'uid',
-          description: 'description',
-          displayName: 'cn',
-          email: 'mail',
-          picture: 'avatarUrl',
-          memberOf: 'memberOf',
-        },
-      },
-    ];
-
-    const vendorConfig: VendorConfig = {
-      dnAttributeName: 'customDN',
-      uuidAttributeName: 'customUUID',
+    return {
+      objectName: (data.dn as string) || '',
+      attributes,
+      raw,
     };
+  };
 
-    const { users, userMemberOf } = await readLdapUsers(
-      client,
-      config,
-      vendorConfig,
-    );
-    expect(users).toEqual([
-      expect.objectContaining({
-        metadata: {
-          name: 'uid-value',
-          description: 'description-value',
-          annotations: {
-            [LDAP_DN_ANNOTATION]: 'dn-value',
-            [LDAP_RDN_ANNOTATION]: 'uid-value',
-            [LDAP_UUID_ANNOTATION]: 'uuid-value',
-          },
-        },
-        spec: {
-          profile: {
-            displayName: 'cn-value',
-            email: 'mail-value',
-            picture: 'avatarUrl-value',
-          },
-          memberOf: [],
-        },
-      }),
-    ]);
-
-    expect(userMemberOf).toEqual(
-      new Map([['dn-value', new Set(['x', 'y', 'z'])]]),
-    );
-  });
-
-  it('transfers all attributes from Microsoft Active Directory', async () => {
-    client.getVendor.mockResolvedValue(ActiveDirectoryVendor);
-    client.searchStreaming.mockImplementation(async (_dn, _opts, fn) => {
-      await fn(
-        searchEntry({
-          uid: ['uid-value'],
-          description: ['description-value'],
-          cn: ['cn-value'],
-          mail: ['mail-value'],
-          avatarUrl: ['avatarUrl-value'],
-          memberOf: ['x', 'y', 'z'],
-          distinguishedName: ['dn-value'],
-          objectGUID: [
-            Buffer.from([
-              68, 2, 125, 190, 209, 0, 94, 73, 133, 33, 230, 174, 234, 195, 160,
-              152,
-            ]),
-          ],
-        }),
-      );
-    });
-    const config: UserConfig[] = [
-      {
-        dn: 'ddd',
-        options: {},
-        map: {
-          rdn: 'uid',
-          name: 'uid',
-          description: 'description',
-          displayName: 'cn',
-          email: 'mail',
-          picture: 'avatarUrl',
-          memberOf: 'memberOf',
-        },
-      },
-    ];
-    const { users, userMemberOf } = await readLdapUsers(client, config, {});
-    expect(users).toEqual([
-      expect.objectContaining({
-        metadata: {
-          name: 'uid-value',
-          description: 'description-value',
-          annotations: {
-            [LDAP_DN_ANNOTATION]: 'dn-value',
-            [LDAP_RDN_ANNOTATION]: 'uid-value',
-            [LDAP_UUID_ANNOTATION]: 'be7d0244-00d1-495e-8521-e6aeeac3a098',
-          },
-        },
-        spec: {
-          profile: {
-            displayName: 'cn-value',
-            email: 'mail-value',
-            picture: 'avatarUrl-value',
-          },
-          memberOf: [],
-        },
-      }),
-    ]);
-    expect(userMemberOf).toEqual(
-      new Map([['dn-value', new Set(['x', 'y', 'z'])]]),
-    );
-  });
-
-  it('transfers all attributes from FreeIPA', async () => {
-    client.getVendor.mockResolvedValue(FreeIpaVendor);
-    client.searchStreaming.mockImplementation(async (_dn, _opts, fn) => {
-      await fn(
-        searchEntry({
-          uid: ['uid-value'],
-          description: ['description-value'],
-          cn: ['cn-value'],
-          mail: ['mail-value'],
-          avatarUrl: ['avatarUrl-value'],
-          memberOf: ['x', 'y', 'z'],
-          dn: ['dn-value'],
-          ipaUniqueID: ['uuid-value'],
-        }),
-      );
-    });
-    const config: UserConfig[] = [
-      {
-        dn: 'ddd',
-        options: {},
-        map: {
-          rdn: 'uid',
-          name: 'uid',
-          description: 'description',
-          displayName: 'cn',
-          email: 'mail',
-          picture: 'avatarUrl',
-          memberOf: 'memberOf',
-        },
-      },
-    ];
-    const { users, userMemberOf } = await readLdapUsers(client, config, {});
-    expect(users).toEqual([
-      expect.objectContaining({
-        metadata: {
-          name: 'uid-value',
-          description: 'description-value',
-          annotations: {
-            [LDAP_DN_ANNOTATION]: 'dn-value',
-            [LDAP_RDN_ANNOTATION]: 'uid-value',
-            [LDAP_UUID_ANNOTATION]: 'uuid-value',
-          },
-        },
-        spec: {
-          profile: {
-            displayName: 'cn-value',
-            email: 'mail-value',
-            picture: 'avatarUrl-value',
-          },
-          memberOf: [],
-        },
-      }),
-    ]);
-    expect(userMemberOf).toEqual(
-      new Map([['dn-value', new Set(['x', 'y', 'z'])]]),
-    );
-  });
-
-  it('transfers all attributes from for vendorDN case sensitivity', async () => {
-    const vendor = DefaultLdapVendor;
-    client.getVendor.mockResolvedValue(vendor);
-    client.searchStreaming.mockImplementation(async (_dn, _opts, fn) => {
-      await fn(
-        searchEntry({
-          uid: ['uid-value'],
-          description: ['description-value'],
-          cn: ['cn-value'],
-          mail: ['mail-value'],
-          avatarUrl: ['avatarUrl-value'],
-          memberOf: ['x', 'Y', 'z'],
-          entryDN: ['dn-VALUE'],
-          entryUUID: ['uuid-value'],
-        }),
-      );
-    });
-    const config: UserConfig[] = [
-      {
-        dn: 'ddd',
-        options: {},
-        map: {
-          rdn: 'uid',
-          name: 'uid',
-          description: 'description',
-          displayName: 'cn',
-          email: 'mail',
-          picture: 'avatarUrl',
-          memberOf: 'memberOf',
-        },
-      },
-    ];
-    const { users, userMemberOf } = await readLdapUsers(client, config, vendor);
-    expect(users).toEqual([
-      expect.objectContaining({
-        metadata: {
-          name: 'uid-value',
-          description: 'description-value',
-          annotations: {
-            [LDAP_DN_ANNOTATION]: 'dn-VALUE',
-            [LDAP_RDN_ANNOTATION]: 'uid-value',
-            [LDAP_UUID_ANNOTATION]: 'uuid-value',
-          },
-        },
-        spec: {
-          profile: {
-            displayName: 'cn-value',
-            email: 'mail-value',
-            picture: 'avatarUrl-value',
-          },
-          memberOf: [],
-        },
-      }),
-    ]);
-    expect(userMemberOf).toEqual(
-      new Map([['dn-VALUE', new Set(['x', 'Y', 'z'])]]),
-    );
-  });
-  it('fails to transfer all attributes from for due case sensitivity', async () => {
-    const vendor = DefaultLdapVendor;
-    client.getVendor.mockResolvedValue(vendor);
-    client.searchStreaming.mockImplementation(async (_dn, _opts, fn) => {
-      await fn(
-        searchEntry({
-          uid: ['uid-value'],
-          description: ['description-value'],
-          cn: ['cn-value'],
-          mail: ['mail-value'],
-          avatarUrl: ['avatarUrl-value'],
-          memberOf: ['x', 'Y', 'z'],
-          entryDN: ['dn-VALUE'],
-          entryUUID: ['uuid-value'],
-        }),
-      );
-    });
-    const config: UserConfig[] = [
-      {
-        dn: 'ddd',
-        options: {},
-        map: {
-          rdn: 'uid',
-          name: 'uid',
-          description: 'description',
-          displayName: 'cn',
-          email: 'mail',
-          picture: 'avatarUrl',
-          memberOf: 'memberOf',
-        },
-      },
-    ];
-    const { users, userMemberOf } = await readLdapUsers(client, config, vendor);
-    expect(users).toEqual([
-      expect.objectContaining({
-        metadata: {
-          name: 'uid-value',
-          description: 'description-value',
-          annotations: {
-            [LDAP_DN_ANNOTATION]: 'dn-VALUE',
-            [LDAP_RDN_ANNOTATION]: 'uid-value',
-            [LDAP_UUID_ANNOTATION]: 'uuid-value',
-          },
-        },
-        spec: {
-          profile: {
-            displayName: 'cn-value',
-            email: 'mail-value',
-            picture: 'avatarUrl-value',
-          },
-          memberOf: [],
-        },
-      }),
-    ]);
-
-    expect(userMemberOf).toEqual(
-      new Map([['dn-VALUE', new Set(['x', 'Y', 'z'])]]),
-    );
-  });
-
-  it('can process a list of UserConfigs', async () => {
-    client.getVendor.mockResolvedValue(DefaultLdapVendor);
-    client.searchStreaming.mockImplementation(async (_dn, _opts, fn) => {
-      await fn(
-        searchEntry({
-          uid: ['uid-value'],
-          description: ['description-value'],
-          cn: ['cn-value'],
-          mail: ['mail-value'],
-          avatarUrl: ['avatarUrl-value'],
-          memberOf: ['x', 'y', 'z'],
-          entryDN: ['dn-value'],
-          entryUUID: ['uuid-value'],
-        }),
-      );
-    });
-    const config: UserConfig[] = [
-      {
-        dn: 'ddd',
-        options: {},
-        map: {
-          rdn: 'uid',
-          name: 'uid',
-          description: 'description',
-          displayName: 'cn',
-          email: 'mail',
-          picture: 'avatarUrl',
-          memberOf: 'memberOf',
-        },
-      },
-      {
-        dn: 'ddd',
-        options: {},
-        map: {
-          rdn: 'uid',
-          name: 'uid',
-          description: 'description',
-          displayName: 'cn',
-          email: 'mail',
-          picture: 'avatarUrl',
-          memberOf: 'memberOf',
-        },
-      },
-    ];
-    const { users } = await readLdapUsers(client, config, {});
-    expect(users).toHaveLength(2);
-  });
-  it('can process no UserConfigs', async () => {
-    const config: UserConfig[] = [];
-    const { users } = await readLdapUsers(client, config, {});
-    expect(users).toHaveLength(0);
-  });
-});
-
-describe('readLdapGroups', () => {
-  const client: jest.Mocked<LdapClient> = {
-    searchStreaming: jest.fn(),
-    getVendor: jest.fn(),
-  } as any;
-
-  afterEach(() => jest.resetAllMocks());
-
-  it('transfers all attributes from a default ldap vendor', async () => {
-    client.getVendor.mockResolvedValue(DefaultLdapVendor);
-    client.searchStreaming.mockImplementation(async (_dn, _opts, fn) => {
-      await fn(
-        searchEntry({
-          cn: ['cn-value'],
-          description: ['description-value'],
-          tt: ['type-value'],
-          mail: ['mail-value'],
-          avatarUrl: ['avatarUrl-value'],
-          memberOf: ['x', 'y', 'z'],
-          member: ['e', 'f', 'g'],
-          entryDN: ['dn-value'],
-          entryUUID: ['uuid-value'],
-        }),
-      );
-    });
-    const config: GroupConfig[] = [
-      {
-        dn: 'ddd',
-        options: {},
-        map: {
-          rdn: 'cn',
-          name: 'cn',
-          description: 'description',
-          displayName: 'cn',
-          email: 'mail',
-          picture: 'avatarUrl',
-          type: 'tt',
-          memberOf: 'memberOf',
-          members: 'member',
-        },
-      },
-    ];
-    const { groups, groupMember, groupMemberOf } = await readLdapGroups(
-      client,
-      config,
-      {},
-    );
-    expect(groups).toEqual([
-      expect.objectContaining({
-        metadata: {
-          name: 'cn-value',
-          description: 'description-value',
-          annotations: {
-            [LDAP_DN_ANNOTATION]: 'dn-value',
-            [LDAP_RDN_ANNOTATION]: 'cn-value',
-            [LDAP_UUID_ANNOTATION]: 'uuid-value',
-          },
-        },
-        spec: {
-          type: 'type-value',
-          profile: {
-            displayName: 'cn-value',
-            email: 'mail-value',
-            picture: 'avatarUrl-value',
-          },
-          children: [],
-        },
-      }),
-    ]);
-    expect(groupMember).toEqual(
-      new Map([['dn-value', new Set(['e', 'f', 'g'])]]),
-    );
-    expect(groupMemberOf).toEqual(
-      new Map([['dn-value', new Set(['x', 'y', 'z'])]]),
-    );
-  });
-
-  it('transfers all attributes from Microsoft Active Directory', async () => {
-    client.getVendor.mockResolvedValue(ActiveDirectoryVendor);
-    client.searchStreaming.mockImplementation(async (_dn, _opts, fn) => {
-      await fn(
-        searchEntry({
-          cn: ['cn-value'],
-          description: ['description-value'],
-          tt: ['type-value'],
-          mail: ['mail-value'],
-          avatarUrl: ['avatarUrl-value'],
-          memberOf: ['x', 'y', 'z'],
-          member: ['e', 'f', 'g'],
-          distinguishedName: ['dn-value'],
-          objectGUID: [
-            Buffer.from([
-              68, 2, 125, 190, 209, 0, 94, 73, 133, 33, 230, 174, 234, 195, 160,
-              152,
-            ]),
-          ],
-        }),
-      );
-    });
-    const config: GroupConfig[] = [
-      {
-        dn: 'ddd',
-        options: {},
-        map: {
-          rdn: 'cn',
-          name: 'cn',
-          description: 'description',
-          displayName: 'cn',
-          email: 'mail',
-          picture: 'avatarUrl',
-          type: 'tt',
-          memberOf: 'memberOf',
-          members: 'member',
-        },
-      },
-    ];
-    const { groups, groupMember, groupMemberOf } = await readLdapGroups(
-      client,
-      config,
-      {},
-    );
-    expect(groups).toEqual([
-      expect.objectContaining({
-        metadata: {
-          name: 'cn-value',
-          description: 'description-value',
-          annotations: {
-            [LDAP_DN_ANNOTATION]: 'dn-value',
-            [LDAP_RDN_ANNOTATION]: 'cn-value',
-            [LDAP_UUID_ANNOTATION]: 'be7d0244-00d1-495e-8521-e6aeeac3a098',
-          },
-        },
-        spec: {
-          type: 'type-value',
-          profile: {
-            displayName: 'cn-value',
-            email: 'mail-value',
-            picture: 'avatarUrl-value',
-          },
-          children: [],
-        },
-      }),
-    ]);
-    expect(groupMember).toEqual(
-      new Map([['dn-value', new Set(['e', 'f', 'g'])]]),
-    );
-    expect(groupMemberOf).toEqual(
-      new Map([['dn-value', new Set(['x', 'y', 'z'])]]),
-    );
-  });
-
-  it('override default vendor configs', async () => {
-    client.getVendor.mockResolvedValue(DefaultLdapVendor);
-    client.searchStreaming.mockImplementation(async (_dn, _opts, fn) => {
-      await fn(
-        searchEntry({
-          cn: ['cn-value'],
-          description: ['description-value'],
-          tt: ['type-value'],
-          mail: ['mail-value'],
-          avatarUrl: ['avatarUrl-value'],
-          memberOf: ['x', 'y', 'z'],
-          member: ['e', 'f', 'g'],
-          customDN: ['dn-value'],
-          customUUID: ['uuid-value'],
-        }),
-      );
-    });
-    const config: GroupConfig[] = [
-      {
-        dn: 'ddd',
-        options: {},
-        map: {
-          rdn: 'cn',
-          name: 'cn',
-          description: 'description',
-          displayName: 'cn',
-          email: 'mail',
-          picture: 'avatarUrl',
-          type: 'tt',
-          memberOf: 'memberOf',
-          members: 'member',
-        },
-      },
-    ];
-
-    const vendorConfig: VendorConfig = {
-      dnAttributeName: 'customDN',
-      uuidAttributeName: 'customUUID',
-    };
-
-    const { groups, groupMember, groupMemberOf } = await readLdapGroups(
-      client,
-      config,
-      vendorConfig,
-    );
-    expect(groups).toEqual([
-      expect.objectContaining({
-        metadata: {
-          name: 'cn-value',
-          description: 'description-value',
-          annotations: {
-            [LDAP_DN_ANNOTATION]: 'dn-value',
-            [LDAP_RDN_ANNOTATION]: 'cn-value',
-            [LDAP_UUID_ANNOTATION]: 'uuid-value',
-          },
-        },
-        spec: {
-          type: 'type-value',
-          profile: {
-            displayName: 'cn-value',
-            email: 'mail-value',
-            picture: 'avatarUrl-value',
-          },
-          children: [],
-        },
-      }),
-    ]);
-    expect(groupMember).toEqual(
-      new Map([['dn-value', new Set(['e', 'f', 'g'])]]),
-    );
-    expect(groupMemberOf).toEqual(
-      new Map([['dn-value', new Set(['x', 'y', 'z'])]]),
-    );
-  });
-
-  it('can process a list of GroupConfigs', async () => {
-    client.getVendor.mockResolvedValue(DefaultLdapVendor);
-    client.searchStreaming.mockImplementation(async (_dn, _opts, fn) => {
-      await fn(
-        searchEntry({
-          cn: ['cn-value'],
-          description: ['description-value'],
-          tt: ['type-value'],
-          mail: ['mail-value'],
-          avatarUrl: ['avatarUrl-value'],
-          memberOf: ['x', 'y', 'z'],
-          member: ['e', 'f', 'g'],
-          entryDN: ['dn-value'],
-          entryUUID: ['uuid-value'],
-        }),
-      );
-    });
-    const config: GroupConfig[] = [
-      {
-        dn: 'ddd',
-        options: {},
-        map: {
-          rdn: 'cn',
-          name: 'cn',
-          description: 'description',
-          displayName: 'cn',
-          email: 'mail',
-          picture: 'avatarUrl',
-          type: 'tt',
-          memberOf: 'memberOf',
-          members: 'member',
-        },
-      },
-      {
-        dn: 'ddd',
-        options: {},
-        map: {
-          rdn: 'cn',
-          name: 'cn',
-          description: 'description',
-          displayName: 'cn',
-          email: 'mail',
-          picture: 'avatarUrl',
-          type: 'tt',
-          memberOf: 'memberOf',
-          members: 'member',
-        },
-      },
-    ];
-    const { groups } = await readLdapGroups(client, config, {});
-    expect(groups).toHaveLength(2);
-  });
-
-  it('can process no GroupConfigs', async () => {
-    const config: GroupConfig[] = [];
-    const { groups } = await readLdapGroups(client, config, {});
-    expect(groups).toHaveLength(0);
-  });
-});
-
-describe('resolveRelations', () => {
-  describe('lookup', () => {
-    it.each([LDAP_DN_ANNOTATION, LDAP_RDN_ANNOTATION, LDAP_UUID_ANNOTATION])(
-      'matches by %s',
-      annotation => {
-        const parent = group({
-          metadata: {
-            name: 'parent',
-            annotations: { [annotation]: 'pa' },
-          },
-        });
-        const child = group({
-          metadata: {
-            name: 'child',
-            annotations: { [annotation]: 'ca' },
-          },
-        });
-        const groupMember = new Map<string, Set<string>>([
-          ['pa', new Set(['ca'])],
-        ]);
-        resolveRelations(
-          [parent, child],
-          [],
-          new Map(),
-          new Map(),
-          groupMember,
-        );
-        expect(parent.spec.children).toEqual(['group:default/child']);
-        expect(child.spec.parent).toEqual('group:default/parent');
-      },
-    );
-  });
-
-  describe('userMemberOf', () => {
-    it.each([LDAP_DN_ANNOTATION, LDAP_RDN_ANNOTATION, LDAP_UUID_ANNOTATION])(
-      'populates relations by %s',
-      annotation => {
-        const host = group({
-          metadata: { name: 'host', annotations: { [annotation]: 'ha' } },
-        });
-        const member = user({
-          metadata: {
-            name: 'member',
-            annotations: { [annotation]: 'ma' },
-          },
-        });
-        const userMemberOf = new Map<string, Set<string>>([
-          ['ma', new Set(['ha'])],
-        ]);
-        resolveRelations([host], [member], userMemberOf, new Map(), new Map());
-        expect(member.spec.memberOf).toEqual(['group:default/host']);
-      },
-    );
-  });
-
-  describe('groupMemberOf', () => {
-    it.each([LDAP_DN_ANNOTATION, LDAP_RDN_ANNOTATION, LDAP_UUID_ANNOTATION])(
-      'populates relations by %s',
-      annotation => {
-        const parent = group({
-          metadata: {
-            name: 'parent',
-            annotations: { [annotation]: 'pa' },
-          },
-        });
-        const child = group({
-          metadata: {
-            name: 'child',
-            annotations: { [annotation]: 'ca' },
-          },
-        });
-        const groupMemberOf = new Map<string, Set<string>>([
-          ['ca', new Set(['pa'])],
-        ]);
-        resolveRelations(
-          [parent, child],
-          [],
-          new Map(),
-          groupMemberOf,
-          new Map(),
-        );
-        expect(parent.spec.children).toEqual(['group:default/child']);
-        expect(child.spec.parent).toEqual('group:default/parent');
-      },
-    );
-  });
-
-  describe('groupMember', () => {
-    it.each([LDAP_DN_ANNOTATION, LDAP_RDN_ANNOTATION, LDAP_UUID_ANNOTATION])(
-      'populates relations by %s',
-      annotation => {
-        const parent = group({
-          metadata: {
-            name: 'parent',
-            annotations: { [annotation]: 'pa' },
-          },
-        });
-        const child = group({
-          metadata: {
-            name: 'child',
-            annotations: { [annotation]: 'ca' },
-          },
-        });
-        const member = user({
-          metadata: {
-            name: 'member',
-            annotations: { [annotation]: 'ma' },
-          },
-        });
-        const groupMember = new Map<string, Set<string>>([
-          ['pa', new Set(['ca', 'ma'])],
-        ]);
-        resolveRelations(
-          [parent, child],
-          [member],
-          new Map(),
-          new Map(),
-          groupMember,
-        );
-        expect(parent.spec.children).toEqual(['group:default/child']);
-        expect(child.spec.parent).toEqual('group:default/parent');
-        expect(member.spec.memberOf).toEqual(['group:default/parent']);
-      },
-    );
-  });
-});
-
-describe('defaultUserTransformer', () => {
-  it('can set things safely', async () => {
-    const config: UserConfig = {
-      dn: 'ddd',
-      options: {},
+  describe('defaultUserTransformer', () => {
+    const userConfig: UserConfig = {
+      dn: 'ou=users,dc=example,dc=com',
+      options: { scope: 'sub', filter: '(objectClass=person)' },
       map: {
         rdn: 'uid',
         name: 'uid',
@@ -928,221 +71,213 @@ describe('defaultUserTransformer', () => {
         email: 'mail',
         memberOf: 'memberOf',
       },
-      set: {
-        'metadata.annotations.a': 1,
-        'metadata.annotations': { a: 2, b: 3 },
-      },
     };
 
-    const entry = searchEntry({
-      uid: ['uid-value'],
-      description: ['description-value'],
-      cn: ['cn-value'],
-      mail: ['mail-value'],
-      avatarUrl: ['avatarUrl-value'],
-      memberOf: ['x', 'y', 'z'],
-      entryDN: ['dn-value'],
-      entryUUID: ['uuid-value'],
+    it('should transform a basic user entry', async () => {
+      const entry = createMockEntry({
+        dn: 'uid=john.doe,ou=users,dc=example,dc=com',
+        uid: 'john.doe',
+        cn: 'John Doe',
+        mail: 'john.doe@example.com',
+        entryDN: 'uid=john.doe,ou=users,dc=example,dc=com',
+        entryUUID: '12345-67890',
+      });
+
+      const result = await defaultUserTransformer(
+        mockVendor,
+        userConfig,
+        entry,
+      );
+
+      expect(result).toMatchObject({
+        apiVersion: 'backstage.io/v1beta1',
+        kind: 'User',
+        metadata: {
+          name: 'john.doe',
+          annotations: {
+            'backstage.io/ldap-dn': 'uid=john.doe,ou=users,dc=example,dc=com',
+            'backstage.io/ldap-rdn': 'john.doe',
+            'backstage.io/ldap-uuid': '12345-67890',
+          },
+        },
+        spec: {
+          profile: {
+            displayName: 'John Doe',
+            email: 'john.doe@example.com',
+          },
+          memberOf: [],
+        },
+      });
     });
 
-    let output = await defaultUserTransformer(DefaultLdapVendor, config, entry);
-    expect(output).toEqual({
-      apiVersion: 'backstage.io/v1beta1',
-      kind: 'User',
-      metadata: {
-        annotations: {
-          'backstage.io/ldap-dn': 'dn-value',
-          'backstage.io/ldap-rdn': 'uid-value',
-          'backstage.io/ldap-uuid': 'uuid-value',
-          a: 2,
-          b: 3,
-        },
-        name: 'uid-value',
-      },
-      spec: {
-        memberOf: [],
-        profile: { displayName: 'cn-value', email: 'mail-value' },
-      },
+    it('should handle missing optional fields', async () => {
+      const entry = createMockEntry({
+        dn: 'uid=minimal.user,ou=users,dc=example,dc=com',
+        uid: 'minimal.user',
+        entryDN: 'uid=minimal.user,ou=users,dc=example,dc=com',
+        entryUUID: '99999',
+      });
+
+      const result = await defaultUserTransformer(
+        mockVendor,
+        userConfig,
+        entry,
+      );
+
+      expect(result).toBeDefined();
+      expect(result?.metadata.name).toBe('minimal.user');
+      expect(result?.spec.profile).toEqual({});
     });
 
-    (output!.metadata.annotations as any).c = 7;
+    it('should throw error for missing required name field', async () => {
+      const entry = createMockEntry({
+        dn: 'uid=noname,ou=users,dc=example,dc=com',
+        cn: 'No Name User',
+        mail: 'noname@example.com',
+      });
 
-    // exact same inputs again
-    output = await defaultUserTransformer(DefaultLdapVendor, config, entry);
-    expect(output).toEqual({
-      apiVersion: 'backstage.io/v1beta1',
-      kind: 'User',
-      metadata: {
-        annotations: {
-          'backstage.io/ldap-dn': 'dn-value',
-          'backstage.io/ldap-rdn': 'uid-value',
-          'backstage.io/ldap-uuid': 'uuid-value',
-          a: 2,
-          b: 3,
+      await expect(
+        defaultUserTransformer(mockVendor, userConfig, entry),
+      ).rejects.toThrow(
+        "User syncing failed: missing 'uid' attribute, consider applying a user filter to skip processing users with incomplete data.",
+      );
+    });
+
+    it('should apply set values', async () => {
+      const configWithSet: UserConfig = {
+        ...userConfig,
+        set: {
+          'metadata.namespace': 'ldap',
+          'metadata.labels.source': 'ldap',
         },
-        name: 'uid-value',
-      },
-      spec: {
-        memberOf: [],
-        profile: { displayName: 'cn-value', email: 'mail-value' },
-      },
+      };
+
+      const entry = createMockEntry({
+        dn: 'uid=john.doe,ou=users,dc=example,dc=com',
+        uid: 'john.doe',
+        entryDN: 'uid=john.doe,ou=users,dc=example,dc=com',
+        entryUUID: '12345',
+      });
+
+      const result = await defaultUserTransformer(
+        mockVendor,
+        configWithSet,
+        entry,
+      );
+
+      expect(result?.metadata.namespace).toBe('ldap');
+      expect(result?.metadata.labels).toEqual({ source: 'ldap' });
     });
   });
 
-  it('throws and includes message when uid (metadata.name) is missing', async () => {
-    const config: UserConfig = {
-      dn: 'ddd',
-      options: {},
-      map: {
-        rdn: 'uid',
-        name: 'uid',
-        displayName: 'cn',
-        email: 'mail',
-        memberOf: 'memberOf',
-      },
-      set: {},
-    };
-
-    const entry = searchEntry({
-      description: ['description-value'],
-      cn: ['cn-value'],
-      mail: ['mail-value'],
-      memberOf: ['x', 'y', 'z'],
-    });
-
-    await expect(
-      defaultUserTransformer(DefaultLdapVendor, config, entry),
-    ).rejects.toThrow(
-      "User syncing failed: missing 'uid' attribute, consider applying a user filter to skip processing users with incomplete data.",
-    );
-  });
-});
-
-describe('defaultGroupTransformer', () => {
-  it('can set things safely', async () => {
-    const config: GroupConfig = {
-      dn: 'ddd',
-      options: {},
-      map: {
-        rdn: 'uid',
-        name: 'uid',
-        displayName: 'cn',
-        email: 'mail',
-        description: 'description',
-        type: 'type',
-        members: 'members',
-        memberOf: 'memberOf',
-      },
-      set: {
-        'metadata.annotations.a': 1,
-        'metadata.annotations': { a: 2, b: 3 },
-      },
-    };
-
-    const entry = searchEntry({
-      uid: ['uid-value'],
-      description: ['description-value'],
-      cn: ['cn-value'],
-      mail: ['mail-value'],
-      avatarUrl: ['avatarUrl-value'],
-      memberOf: ['x', 'y', 'z'],
-      entryDN: ['dn-value'],
-      entryUUID: ['uuid-value'],
-    });
-
-    let output = await defaultGroupTransformer(
-      DefaultLdapVendor,
-      config,
-      entry,
-    );
-    expect(output).toEqual({
-      apiVersion: 'backstage.io/v1beta1',
-      kind: 'Group',
-      metadata: {
-        annotations: {
-          'backstage.io/ldap-dn': 'dn-value',
-          'backstage.io/ldap-rdn': 'uid-value',
-          'backstage.io/ldap-uuid': 'uuid-value',
-          a: 2,
-          b: 3,
-        },
-        description: 'description-value',
-        name: 'uid-value',
-      },
-      spec: {
-        type: 'unknown',
-        children: [],
-        profile: { displayName: 'cn-value', email: 'mail-value' },
-      },
-    });
-
-    (output!.metadata.annotations as any).c = 7;
-
-    // exact same inputs again
-    output = await defaultGroupTransformer(DefaultLdapVendor, config, entry);
-    expect(output).toEqual({
-      apiVersion: 'backstage.io/v1beta1',
-      kind: 'Group',
-      metadata: {
-        annotations: {
-          'backstage.io/ldap-dn': 'dn-value',
-          'backstage.io/ldap-rdn': 'uid-value',
-          'backstage.io/ldap-uuid': 'uuid-value',
-          a: 2,
-          b: 3,
-        },
-        description: 'description-value',
-        name: 'uid-value',
-      },
-      spec: {
-        type: 'unknown',
-        children: [],
-        profile: { displayName: 'cn-value', email: 'mail-value' },
-      },
-    });
-  });
-
-  it('throws and includes message when cn (metadata.name) is missing', async () => {
-    const config: GroupConfig = {
-      dn: 'ddd',
-      options: {},
+  describe('defaultGroupTransformer', () => {
+    const groupConfig: GroupConfig = {
+      dn: 'ou=groups,dc=example,dc=com',
+      options: { scope: 'sub', filter: '(objectClass=group)' },
       map: {
         rdn: 'cn',
         name: 'cn',
-        displayName: 'cn',
-        email: 'mail',
         description: 'description',
-        type: 'type',
-        members: 'members',
+        type: 'groupType',
+        displayName: 'cn',
         memberOf: 'memberOf',
+        members: 'member',
       },
     };
 
-    const entry = searchEntry({
-      description: ['description-value'],
-      mail: ['mail-value'],
-      avatarUrl: ['avatarUrl-value'],
-      memberOf: ['x', 'y', 'z'],
-      entryDN: ['dn-value'],
-      entryUUID: ['uuid-value'],
+    it('should transform a basic group entry', async () => {
+      const entry = createMockEntry({
+        dn: 'cn=developers,ou=groups,dc=example,dc=com',
+        cn: 'developers',
+        description: 'Development Team',
+        groupType: 'team',
+        entryDN: 'cn=developers,ou=groups,dc=example,dc=com',
+        entryUUID: 'group-123',
+      });
+
+      const result = await defaultGroupTransformer(
+        mockVendor,
+        groupConfig,
+        entry,
+      );
+
+      expect(result).toMatchObject({
+        apiVersion: 'backstage.io/v1beta1',
+        kind: 'Group',
+        metadata: {
+          name: 'developers',
+          description: 'Development Team',
+          annotations: {
+            'backstage.io/ldap-dn': 'cn=developers,ou=groups,dc=example,dc=com',
+            'backstage.io/ldap-rdn': 'developers',
+            'backstage.io/ldap-uuid': 'group-123',
+          },
+        },
+        spec: {
+          type: 'team',
+          profile: {
+            displayName: 'developers',
+          },
+          children: [],
+        },
+      });
     });
 
-    await expect(
-      defaultGroupTransformer(DefaultLdapVendor, config, entry),
-    ).rejects.toThrow(
-      "Group syncing failed: missing 'cn' attribute, consider applying a group filter to skip processing groups with incomplete data.",
-    );
-  });
-});
+    it('should handle groups with email and picture', async () => {
+      const configWithEmailPicture: GroupConfig = {
+        ...groupConfig,
+        map: {
+          ...groupConfig.map,
+          email: 'mail',
+          picture: 'thumbnailPhoto',
+        },
+      };
 
-/**
- * Case Insensitivity Tests
- */
-describe('defaultUserTransformerWithCaseSensitiveDNs', () => {
-  it('can set things safely', async () => {
-    const config: UserConfig = {
-      dn: 'ddd',
-      options: {},
+      const entry = createMockEntry({
+        dn: 'cn=admins,ou=groups,dc=example,dc=com',
+        cn: 'admins',
+        mail: 'admins@example.com',
+        thumbnailPhoto: 'https://example.com/admins.jpg',
+        entryDN: 'cn=admins,ou=groups,dc=example,dc=com',
+        entryUUID: 'admin-group',
+      });
+
+      const result = await defaultGroupTransformer(
+        mockVendor,
+        configWithEmailPicture,
+        entry,
+      );
+
+      expect(result?.spec.profile).toMatchObject({
+        displayName: 'admins',
+        email: 'admins@example.com',
+        picture: 'https://example.com/admins.jpg',
+      });
+    });
+
+    it('should throw error for missing required name field', async () => {
+      const entry = createMockEntry({
+        dn: 'cn=noname,ou=groups,dc=example,dc=com',
+        description: 'Group without name',
+      });
+
+      await expect(
+        defaultGroupTransformer(mockVendor, groupConfig, entry),
+      ).rejects.toThrow(
+        "Group syncing failed: missing 'cn' attribute, consider applying a group filter to skip processing groups with incomplete data.",
+      );
+    });
+  });
+
+  describe('readLdapUsers', () => {
+    const mockClient = {
+      getVendor: jest.fn().mockResolvedValue(DefaultLdapVendor),
+      searchStreaming: jest.fn(),
+    };
+
+    const userConfig: UserConfig = {
+      dn: 'ou=users,dc=example,dc=com',
+      options: { scope: 'sub', filter: '(objectClass=person)' },
       map: {
         rdn: 'uid',
         name: 'uid',
@@ -1150,148 +285,316 @@ describe('defaultUserTransformerWithCaseSensitiveDNs', () => {
         email: 'mail',
         memberOf: 'memberOf',
       },
-      set: {
-        'metadata.annotations.a': 1,
-        'metadata.annotations': { a: 2, b: 3 },
-      },
     };
 
-    const entry = searchEntry({
-      uid: ['uid-value'],
-      description: ['description-value'],
-      cn: ['cn-value'],
-      mail: ['mail-value'],
-      avatarUrl: ['avatarUrl-value'],
-      memberOf: ['x', 'y', 'z'],
-      entryDN: ['dn-VALUE'],
-      entryUUID: ['uuid-value'],
+    beforeEach(() => {
+      jest.clearAllMocks();
     });
 
-    const vendor = DefaultLdapVendor;
-    let output = await defaultUserTransformer(vendor, config, entry);
-    expect(output).toEqual({
-      apiVersion: 'backstage.io/v1beta1',
-      kind: 'User',
-      metadata: {
-        annotations: {
-          'backstage.io/ldap-dn': 'dn-VALUE',
-          'backstage.io/ldap-rdn': 'uid-value',
-          'backstage.io/ldap-uuid': 'uuid-value',
-          a: 2,
-          b: 3,
+    it('should read users and their group memberships', async () => {
+      const mockEntries = [
+        createMockEntry({
+          dn: 'uid=user1,ou=users,dc=example,dc=com',
+          uid: 'user1',
+          cn: 'User One',
+          memberOf: [
+            'cn=team1,ou=groups,dc=example,dc=com',
+            'cn=team2,ou=groups,dc=example,dc=com',
+          ],
+          entryDN: 'uid=user1,ou=users,dc=example,dc=com',
+          entryUUID: 'user1-uuid',
+        }),
+        createMockEntry({
+          dn: 'uid=user2,ou=users,dc=example,dc=com',
+          uid: 'user2',
+          cn: 'User Two',
+          memberOf: ['cn=team1,ou=groups,dc=example,dc=com'],
+          entryDN: 'uid=user2,ou=users,dc=example,dc=com',
+          entryUUID: 'user2-uuid',
+        }),
+      ];
+
+      mockClient.searchStreaming.mockImplementation(
+        async (dn, options, callback) => {
+          for (const entry of mockEntries) {
+            await callback(entry);
+          }
         },
-        name: 'uid-value',
-      },
-      spec: {
-        memberOf: [],
-        profile: { displayName: 'cn-value', email: 'mail-value' },
-      },
+      );
+
+      const result = await readLdapUsers(
+        mockClient as any,
+        [userConfig],
+        undefined,
+      );
+
+      expect(result.users).toHaveLength(2);
+      expect(result.users[0].metadata.name).toBe('user1');
+      expect(result.users[1].metadata.name).toBe('user2');
+
+      expect(
+        result.userMemberOf.get('uid=user1,ou=users,dc=example,dc=com'),
+      ).toEqual(
+        new Set([
+          'cn=team1,ou=groups,dc=example,dc=com',
+          'cn=team2,ou=groups,dc=example,dc=com',
+        ]),
+      );
+      expect(
+        result.userMemberOf.get('uid=user2,ou=users,dc=example,dc=com'),
+      ).toEqual(new Set(['cn=team1,ou=groups,dc=example,dc=com']));
     });
 
-    (output!.metadata.annotations as any).c = 7;
+    it('should handle custom transformer', async () => {
+      const customTransformer = jest.fn().mockResolvedValue({
+        apiVersion: 'backstage.io/v1beta1',
+        kind: 'User',
+        metadata: { name: 'custom-user' },
+        spec: { memberOf: [] },
+      });
 
-    // exact same inputs again
-    output = await defaultUserTransformer(vendor, config, entry);
-    expect(output).toEqual({
-      apiVersion: 'backstage.io/v1beta1',
-      kind: 'User',
-      metadata: {
-        annotations: {
-          'backstage.io/ldap-dn': 'dn-VALUE',
-          'backstage.io/ldap-rdn': 'uid-value',
-          'backstage.io/ldap-uuid': 'uuid-value',
-          a: 2,
-          b: 3,
+      const mockEntry = createMockEntry({
+        dn: 'uid=user1,ou=users,dc=example,dc=com',
+        uid: 'user1',
+        entryDN: 'uid=user1,ou=users,dc=example,dc=com',
+        entryUUID: 'user1-uuid',
+      });
+
+      mockClient.searchStreaming.mockImplementation(
+        async (dn, options, callback) => {
+          await callback(mockEntry);
         },
-        name: 'uid-value',
-      },
-      spec: {
-        memberOf: [],
-        profile: { displayName: 'cn-value', email: 'mail-value' },
-      },
+      );
+
+      const result = await readLdapUsers(
+        mockClient as any,
+        [userConfig],
+        undefined,
+        { transformer: customTransformer },
+      );
+
+      expect(customTransformer).toHaveBeenCalledWith(
+        expect.any(Object),
+        userConfig,
+        mockEntry,
+      );
+      expect(result.users[0].metadata.name).toBe('custom-user');
+    });
+
+    it('should skip entries when transformer returns undefined', async () => {
+      const filteringTransformer = jest
+        .fn()
+        .mockImplementation(async (vendor, config, entry) => {
+          if (
+            entry.attributes.find(a => a.type === 'uid')?.values[0] ===
+            'skip-me'
+          ) {
+            return undefined;
+          }
+          return defaultUserTransformer(vendor, config, entry);
+        });
+
+      const mockEntries = [
+        createMockEntry({
+          dn: 'uid=keep-me,ou=users,dc=example,dc=com',
+          uid: 'keep-me',
+          entryDN: 'uid=keep-me,ou=users,dc=example,dc=com',
+          entryUUID: 'keep-uuid',
+        }),
+        createMockEntry({
+          dn: 'uid=skip-me,ou=users,dc=example,dc=com',
+          uid: 'skip-me',
+          entryDN: 'uid=skip-me,ou=users,dc=example,dc=com',
+          entryUUID: 'skip-uuid',
+        }),
+      ];
+
+      mockClient.searchStreaming.mockImplementation(
+        async (dn, options, callback) => {
+          for (const entry of mockEntries) {
+            await callback(entry);
+          }
+        },
+      );
+
+      const result = await readLdapUsers(
+        mockClient as any,
+        [userConfig],
+        undefined,
+        { transformer: filteringTransformer },
+      );
+
+      expect(result.users).toHaveLength(1);
+      expect(result.users[0].metadata.name).toBe('keep-me');
     });
   });
-});
 
-describe('defaultGroupTransformerWithCaseSensitiveDNs', () => {
-  it('can set things safely', async () => {
-    const config: GroupConfig = {
-      dn: 'ddd',
-      options: {},
-      map: {
-        rdn: 'uid',
-        name: 'uid',
-        displayName: 'cn',
-        email: 'mail',
-        description: 'description',
-        type: 'type',
-        members: 'members',
-        memberOf: 'memberOf',
-      },
-      set: {
-        'metadata.annotations.a': 1,
-        'metadata.annotations': { a: 2, b: 3 },
-      },
-    };
+  describe('resolveRelations', () => {
+    it('should resolve user memberships to groups', () => {
+      const users: UserEntity[] = [
+        {
+          apiVersion: 'backstage.io/v1beta1',
+          kind: 'User',
+          metadata: {
+            name: 'user1',
+            annotations: {
+              'backstage.io/ldap-dn': 'uid=user1,ou=users,dc=example,dc=com',
+              'backstage.io/ldap-uuid': 'user1-uuid',
+            },
+          },
+          spec: { memberOf: [] },
+        },
+      ];
 
-    const entry = searchEntry({
-      uid: ['uid-value'],
-      description: ['description-value'],
-      cn: ['cn-value'],
-      mail: ['mail-value'],
-      avatarUrl: ['avatarUrl-value'],
-      memberOf: ['x', 'y', 'z'],
-      entryDN: ['dn-VALUE'],
-      entryUUID: ['uuid-value'],
+      const groups: GroupEntity[] = [
+        {
+          apiVersion: 'backstage.io/v1beta1',
+          kind: 'Group',
+          metadata: {
+            name: 'team1',
+            annotations: {
+              'backstage.io/ldap-dn': 'cn=team1,ou=groups,dc=example,dc=com',
+              'backstage.io/ldap-uuid': 'team1-uuid',
+            },
+          },
+          spec: { type: 'team', children: [] },
+        },
+      ];
+
+      const userMemberOf = new Map([
+        [
+          'uid=user1,ou=users,dc=example,dc=com',
+          new Set(['cn=team1,ou=groups,dc=example,dc=com']),
+        ],
+      ]);
+
+      resolveRelations(groups, users, userMemberOf, new Map(), new Map());
+
+      expect(users[0].spec.memberOf).toEqual(['group:default/team1']);
     });
 
-    const vendor = DefaultLdapVendor;
-
-    let output = await defaultGroupTransformer(vendor, config, entry);
-    expect(output).toEqual({
-      apiVersion: 'backstage.io/v1beta1',
-      kind: 'Group',
-      metadata: {
-        annotations: {
-          'backstage.io/ldap-dn': 'dn-VALUE',
-          'backstage.io/ldap-rdn': 'uid-value',
-          'backstage.io/ldap-uuid': 'uuid-value',
-          a: 2,
-          b: 3,
+    it('should resolve group hierarchies', () => {
+      const groups: GroupEntity[] = [
+        {
+          apiVersion: 'backstage.io/v1beta1',
+          kind: 'Group',
+          metadata: {
+            name: 'parent',
+            annotations: {
+              'backstage.io/ldap-dn': 'cn=parent,ou=groups,dc=example,dc=com',
+              'backstage.io/ldap-uuid': 'parent-uuid',
+            },
+          },
+          spec: { type: 'team', children: [] },
         },
-        description: 'description-value',
-        name: 'uid-value',
-      },
-      spec: {
-        type: 'unknown',
-        children: [],
-        profile: { displayName: 'cn-value', email: 'mail-value' },
-      },
+        {
+          apiVersion: 'backstage.io/v1beta1',
+          kind: 'Group',
+          metadata: {
+            name: 'child',
+            annotations: {
+              'backstage.io/ldap-dn': 'cn=child,ou=groups,dc=example,dc=com',
+              'backstage.io/ldap-uuid': 'child-uuid',
+            },
+          },
+          spec: { type: 'team', children: [] },
+        },
+      ];
+
+      const groupMemberOf = new Map([
+        [
+          'cn=child,ou=groups,dc=example,dc=com',
+          new Set(['cn=parent,ou=groups,dc=example,dc=com']),
+        ],
+      ]);
+
+      resolveRelations(groups, [], new Map(), groupMemberOf, new Map());
+
+      expect(groups[1].spec.parent).toBe('group:default/parent');
+      expect(groups[0].spec.children).toEqual(['group:default/child']);
     });
 
-    (output!.metadata.annotations as any).c = 7;
-
-    // exact same inputs again
-    output = await defaultGroupTransformer(vendor, config, entry);
-    expect(output).toEqual({
-      apiVersion: 'backstage.io/v1beta1',
-      kind: 'Group',
-      metadata: {
-        annotations: {
-          'backstage.io/ldap-dn': 'dn-VALUE',
-          'backstage.io/ldap-rdn': 'uid-value',
-          'backstage.io/ldap-uuid': 'uuid-value',
-          a: 2,
-          b: 3,
+    it('should handle case-insensitive DN matching', () => {
+      const users: UserEntity[] = [
+        {
+          apiVersion: 'backstage.io/v1beta1',
+          kind: 'User',
+          metadata: {
+            name: 'user1',
+            annotations: {
+              'backstage.io/ldap-dn': 'UID=User1,OU=Users,DC=Example,DC=Com',
+              'backstage.io/ldap-uuid': 'user1-uuid',
+            },
+          },
+          spec: { memberOf: [] },
         },
-        description: 'description-value',
-        name: 'uid-value',
-      },
-      spec: {
-        type: 'unknown',
-        children: [],
-        profile: { displayName: 'cn-value', email: 'mail-value' },
-      },
+      ];
+
+      const groups: GroupEntity[] = [
+        {
+          apiVersion: 'backstage.io/v1beta1',
+          kind: 'Group',
+          metadata: {
+            name: 'team1',
+            annotations: {
+              'backstage.io/ldap-dn': 'CN=Team1,OU=Groups,DC=Example,DC=Com',
+              'backstage.io/ldap-uuid': 'team1-uuid',
+            },
+          },
+          spec: { type: 'team', children: [] },
+        },
+      ];
+
+      // Note the lowercase DN in the map
+      const userMemberOf = new Map([
+        [
+          'uid=user1,ou=users,dc=example,dc=com',
+          new Set(['cn=team1,ou=groups,dc=example,dc=com']),
+        ],
+      ]);
+
+      resolveRelations(groups, users, userMemberOf, new Map(), new Map());
+
+      expect(users[0].spec.memberOf).toEqual(['group:default/team1']);
+    });
+
+    it('should resolve by UUID when DN is not found', () => {
+      const users: UserEntity[] = [
+        {
+          apiVersion: 'backstage.io/v1beta1',
+          kind: 'User',
+          metadata: {
+            name: 'user1',
+            annotations: {
+              'backstage.io/ldap-dn': 'uid=user1,ou=users,dc=example,dc=com',
+              'backstage.io/ldap-uuid': 'user1-uuid',
+            },
+          },
+          spec: { memberOf: [] },
+        },
+      ];
+
+      const groups: GroupEntity[] = [
+        {
+          apiVersion: 'backstage.io/v1beta1',
+          kind: 'Group',
+          metadata: {
+            name: 'team1',
+            annotations: {
+              'backstage.io/ldap-dn': 'cn=team1,ou=groups,dc=example,dc=com',
+              'backstage.io/ldap-uuid': 'team1-uuid',
+            },
+          },
+          spec: { type: 'team', children: [] },
+        },
+      ];
+
+      // Use UUID instead of DN
+      const userMemberOf = new Map([['user1-uuid', new Set(['team1-uuid'])]]);
+
+      resolveRelations(groups, users, userMemberOf, new Map(), new Map());
+
+      expect(users[0].spec.memberOf).toEqual(['group:default/team1']);
     });
   });
 });

@@ -84,13 +84,12 @@ export interface Config {
               attributes?: string | string[];
               sizeLimit?: number;
               timeLimit?: number;
-              derefAliases?: number;
+              derefAliases?: string;
               typesOnly?: boolean;
               paged?:
                 | boolean
                 | {
                     pageSize?: number;
-                    pagePause?: boolean;
                   };
             };
             /**
