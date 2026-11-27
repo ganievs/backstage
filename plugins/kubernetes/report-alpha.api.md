@@ -5,13 +5,16 @@
 ```ts
 import { AnyRouteRefParams } from '@backstage/frontend-plugin-api';
 import { ApiFactory } from '@backstage/frontend-plugin-api';
+import { ConfigurableExtensionDataRef } from '@backstage/frontend-plugin-api';
 import { defaultEntityContentGroups } from '@backstage/plugin-catalog-react/alpha';
 import { Entity } from '@backstage/catalog-model';
 import { ExtensionBlueprintParams } from '@backstage/frontend-plugin-api';
 import { ExtensionDataRef } from '@backstage/frontend-plugin-api';
+import { ExtensionInput } from '@backstage/frontend-plugin-api';
 import { FilterPredicate } from '@backstage/filter-predicates';
 import { JSX as JSX_2 } from 'react';
 import { JSXElementConstructor } from 'react';
+import { KubernetesCustomResourceRenderer } from '@backstage/plugin-kubernetes-react/alpha';
 import { OverridableExtensionDefinition } from '@backstage/frontend-plugin-api';
 import { OverridableFrontendPlugin } from '@backstage/frontend-plugin-api';
 import { ReactElement } from 'react';
@@ -64,6 +67,34 @@ const _default: OverridableFrontendPlugin<
       configInput: {};
       output: ExtensionDataRef<ApiFactory, 'core.api.factory', {}>;
       inputs: {};
+      params: <
+        TApi,
+        TImpl extends TApi,
+        TDeps extends { [name in string]: unknown },
+      >(
+        params: ApiFactory<TApi, TImpl, TDeps>,
+      ) => ExtensionBlueprintParams<ApiFactory>;
+    }>;
+    'api:kubernetes/custom-resource-renderers': OverridableExtensionDefinition<{
+      config: {};
+      configInput: {};
+      output: ExtensionDataRef<ApiFactory, 'core.api.factory', {}>;
+      inputs: {
+        renderers: ExtensionInput<
+          ConfigurableExtensionDataRef<
+            KubernetesCustomResourceRenderer,
+            'kubernetes.custom-resource-renderer',
+            {}
+          >,
+          {
+            singleton: false;
+            optional: false;
+            internal: false;
+          }
+        >;
+      };
+      kind: 'api';
+      name: 'custom-resource-renderers';
       params: <
         TApi,
         TImpl extends TApi,

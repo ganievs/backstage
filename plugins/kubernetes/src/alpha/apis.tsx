@@ -16,6 +16,7 @@
 
 import {
   ApiBlueprint,
+  createExtensionInput,
   discoveryApiRef,
   fetchApiRef,
 } from '@backstage/frontend-plugin-api';
@@ -31,6 +32,11 @@ import {
   KubernetesClusterLinkFormatter,
   DEFAULT_FORMATTER_NAME,
 } from '@backstage/plugin-kubernetes-react';
+import {
+  DefaultKubernetesCustomResourceRenderersApi,
+  KubernetesCustomResourceRendererBlueprint,
+  kubernetesCustomResourceRenderersApiRef,
+} from '@backstage/plugin-kubernetes-react/alpha';
 import {
   gitlabAuthApiRef,
   googleAuthApiRef,
@@ -123,3 +129,27 @@ export const kubernetesClusterLinkFormatterApi = ApiBlueprint.make({
       },
     }),
 });
+
+export const kubernetesCustomResourceRenderersApi =
+  ApiBlueprint.makeWithOverrides({
+    name: 'custom-resource-renderers',
+    inputs: {
+      renderers: createExtensionInput([
+        KubernetesCustomResourceRendererBlueprint.dataRefs.renderer,
+      ]),
+    },
+    factory(originalFactory, { inputs }) {
+      const renderers = inputs.renderers.map(e =>
+        e.get(KubernetesCustomResourceRendererBlueprint.dataRefs.renderer),
+      );
+
+      return originalFactory(defineParams =>
+        defineParams({
+          api: kubernetesCustomResourceRenderersApiRef,
+          deps: {},
+          factory: () =>
+            DefaultKubernetesCustomResourceRenderersApi.create({ renderers }),
+        }),
+      );
+    },
+  });

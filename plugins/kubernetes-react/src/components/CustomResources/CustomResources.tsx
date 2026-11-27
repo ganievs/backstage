@@ -15,10 +15,12 @@
  */
 
 import { ReactNode, useContext } from 'react';
-import lodash, { Dictionary } from 'lodash';
-import { RolloutAccordions } from './ArgoRollouts';
+import lodash from 'lodash';
+import { useApiHolder } from '@backstage/core-plugin-api';
 import { DefaultCustomResourceAccordions } from './DefaultCustomResource';
+import { builtInRenderers } from './builtInRenderers';
 import { GroupedResponsesContext } from '../../hooks';
+import { kubernetesCustomResourceRenderersApiRef } from '../../alpha/customResourceRenderers/types';
 
 /**
  *
@@ -29,10 +31,15 @@ export interface CustomResourcesProps {
   children?: ReactNode;
 }
 
-const kindToResource = (customResources: any[]): Dictionary<any[]> => {
-  return lodash.groupBy(customResources, value => {
-    return value.kind;
-  });
+// The API group of a resource: '' for the core group (e.g. 'v1'), and
+// undefined when the resource has no apiVersion.
+const getGroup = (resource: any): string | undefined => {
+  const apiVersion: unknown = resource?.apiVersion;
+  if (typeof apiVersion !== 'string') {
+    return undefined;
+  }
+  const slash = apiVersion.indexOf('/');
+  return slash === -1 ? '' : apiVersion.slice(0, slash);
 };
 
 /**
@@ -42,23 +49,40 @@ const kindToResource = (customResources: any[]): Dictionary<any[]> => {
  */
 export const CustomResources = ({}: CustomResourcesProps) => {
   const groupedResponses = useContext(GroupedResponsesContext);
-  const kindToResourceMap = kindToResource(groupedResponses.customResources);
+  const renderersApi = useApiHolder().get(
+    kubernetesCustomResourceRenderersApiRef,
+  );
+  const groups = lodash.groupBy(
+    groupedResponses.customResources,
+    resource => `${getGroup(resource)}/${resource.kind}`,
+  );
 
   return (
     <>
-      {Object.entries(kindToResourceMap).map(([kind, resources], i) => {
-        switch (kind) {
-          case 'Rollout':
-            return <RolloutAccordions key={i} rollouts={resources} />;
-          default:
-            return (
-              <DefaultCustomResourceAccordions
-                key={i}
-                customResources={resources}
-                customResourceName={kind}
-              />
-            );
+      {Object.entries(groups).map(([key, resources]) => {
+        const group = getGroup(resources[0]);
+        const kind: string = resources[0].kind;
+        const renderer =
+          renderersApi?.getRenderer({ group, kind }) ??
+          builtInRenderers.getRenderer({ group, kind });
+        if (renderer) {
+          const Renderer = renderer.component;
+          return (
+            <Renderer
+              key={key}
+              group={renderer.group}
+              kind={renderer.kind}
+              resources={resources}
+            />
+          );
         }
+        return (
+          <DefaultCustomResourceAccordions
+            key={key}
+            customResources={resources}
+            customResourceName={kind}
+          />
+        );
       })}
     </>
   );

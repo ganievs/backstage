@@ -215,6 +215,7 @@ export default {
             'features/kubernetes/overview',
             'features/kubernetes/installation',
             'features/kubernetes/configuration',
+            'features/kubernetes/custom-resource-renderers',
             'features/kubernetes/authentication',
             'features/kubernetes/authentication-strategies',
             'features/kubernetes/troubleshooting',
