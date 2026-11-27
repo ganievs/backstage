@@ -21,3 +21,15 @@ import { kubernetesReactTranslationRef as _kubernetesReactTranslationRef } from 
  * @deprecated Import from `@backstage/plugin-kubernetes-react` instead.
  */
 export const kubernetesReactTranslationRef = _kubernetesReactTranslationRef;
+
+export {
+  kubernetesCustomResourceRenderersApiRef,
+  type KubernetesCustomResourceRenderer,
+  type KubernetesCustomResourceRendererProps,
+  type KubernetesCustomResourceRenderersApi,
+} from './alpha/customResourceRenderers/types';
+export { DefaultKubernetesCustomResourceRenderersApi } from './alpha/customResourceRenderers/DefaultKubernetesCustomResourceRenderersApi';
+export {
+  KubernetesCustomResourceRendererBlueprint,
+  type KubernetesCustomResourceRendererBlueprintParams,
+} from './alpha/customResourceRenderers/KubernetesCustomResourceRendererBlueprint';

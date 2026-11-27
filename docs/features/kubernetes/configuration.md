@@ -692,6 +692,9 @@ kubernetes:
       plural: 'rollouts'
 ```
 
+To show your own view for a custom resource instead of the default one, see
+[Custom resource renderers](./custom-resource-renderers.md).
+
 #### `customResources.\*.group`
 
 The custom resource's group.

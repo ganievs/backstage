@@ -21,6 +21,7 @@ import {
   kubernetesApiExtension as kubernetesApi,
   kubernetesAuthProvidersApi,
   kubernetesClusterLinkFormatterApi,
+  kubernetesCustomResourceRenderersApi,
   kubernetesProxyApi,
 } from './apis';
 
@@ -48,6 +49,7 @@ export default createFrontendPlugin({
     kubernetesProxyApi,
     kubernetesAuthProvidersApi,
     kubernetesClusterLinkFormatterApi,
+    kubernetesCustomResourceRenderersApi,
   ],
   routes: { kubernetes: rootCatalogKubernetesRouteRef },
 });

@@ -38,6 +38,11 @@ import fixture7 from '../src/__fixtures__/2-statefulsets.json';
 import { mockApis, TestApiProvider } from '@backstage/test-utils';
 import { permissionApiRef } from '@backstage/plugin-permission-react';
 import { StructuredMetadataTable } from '@backstage/core-components';
+import {
+  DefaultKubernetesCustomResourceRenderersApi,
+  KubernetesCustomResourceRendererProps,
+  kubernetesCustomResourceRenderersApiRef,
+} from '@backstage/plugin-kubernetes-react/alpha';
 
 const mockEntity: Entity = {
   apiVersion: 'backstage.io/v1alpha1',
@@ -142,6 +147,32 @@ const metadata = {
   testB: { testC: 'stuff' },
   testD: [{ testE: 'stuff' }],
 };
+
+const customResourceFixture = {
+  customResources: [
+    {
+      apiVersion: 'networking.istio.io/v1',
+      kind: 'VirtualService',
+      metadata: {
+        name: 'dice-roller',
+        namespace: 'default',
+        labels: { 'backstage.io/kubernetes-id': 'dice-roller' },
+      },
+      spec: { hosts: ['dice-roller.example.com'] },
+    },
+  ],
+};
+
+const SampleVirtualServiceRenderer = ({
+  kind,
+  resources,
+}: KubernetesCustomResourceRendererProps) => (
+  <StructuredMetadataTable
+    metadata={Object.fromEntries(
+      resources.map(r => [`${kind} ${r.metadata.name}`, r.spec.hosts]),
+    )}
+  />
+);
 
 createDevApp()
   .addPage({
@@ -249,6 +280,34 @@ createDevApp()
             metadata={metadata}
             options={{ nestedValuesAsYaml: true }}
           />
+          <EntityKubernetesContent />
+        </EntityProvider>
+      </TestApiProvider>
+    ),
+  })
+  .addPage({
+    path: '/custom-resource-renderer',
+    title: 'Custom Resource Renderer',
+    element: (
+      <TestApiProvider
+        apis={[
+          [kubernetesApiRef, new MockKubernetesClient(customResourceFixture)],
+          [permissionApiRef, mockApis.permission()],
+          [
+            kubernetesCustomResourceRenderersApiRef,
+            DefaultKubernetesCustomResourceRenderersApi.create({
+              renderers: [
+                {
+                  group: 'networking.istio.io',
+                  kind: 'VirtualService',
+                  component: SampleVirtualServiceRenderer,
+                },
+              ],
+            }),
+          ],
+        ]}
+      >
+        <EntityProvider entity={mockEntity}>
           <EntityKubernetesContent />
         </EntityProvider>
       </TestApiProvider>
